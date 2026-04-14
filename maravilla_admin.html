@@ -690,16 +690,28 @@ const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let currentUser = null;
+let currentRole = 'vendedor';
 let allProducts = [];
 let allOrders = [];
+let allProfiles = [];
 let currentImageMode = 'upload';
 let localImageFile = null;
 
 // ===== AUTH =====
+async function fetchUserProfile() {
+  const { data: profile } = await sb
+    .from('profiles')
+    .select('role, full_name')
+    .eq('id', currentUser.id)
+    .single();
+  currentRole = profile?.role || 'vendedor';
+}
+
 async function checkAuth() {
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
     currentUser = session.user;
+    await fetchUserProfile();
     showAdmin();
   }
 }
@@ -726,6 +738,7 @@ async function login() {
   }
 
   currentUser = data.user;
+  await fetchUserProfile();
   showAdmin();
 }
 
@@ -746,18 +759,41 @@ function showAdmin() {
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('adminPanel').style.display = 'flex';
   document.getElementById('userEmail').textContent = currentUser.email;
+  
+  const roleBadge = document.getElementById('userRoleBadge');
+  if (currentRole === 'admin') {
+    roleBadge.textContent = 'Administrador';
+    roleBadge.style.color = '#C8860A';
+    document.getElementById('nav-users').style.display = 'flex';
+    document.getElementById('nav-config').style.display = 'flex';
+  } else {
+    roleBadge.textContent = 'Vendedor';
+    roleBadge.style.color = '#8A7560';
+    document.getElementById('nav-users').style.display = 'none';
+    document.getElementById('nav-config').style.display = 'none';
+  }
+  
   loadDashboard();
   loadProducts();
   loadOrders();
-  loadConfig();
+  if (currentRole === 'admin') {
+    loadConfig();
+    loadUsers();
+  }
 }
 
 // ===== NAVIGATION =====
 function showPage(name, el) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + name).classList.add('active');
-  el.classList.add('active');
+  
+  const pageContent = document.getElementById('page-' + name);
+  if (currentRole !== 'admin' && (name === 'config' || name === 'users')) {
+    pageContent.innerHTML = '<div style="padding:3rem;text-align:center;color:var(--terracotta);font-size:1.1rem;font-weight:600;">No tenés permisos para acceder a esta sección.</div>';
+  }
+  
+  pageContent.classList.add('active');
+  if (el) el.classList.add('active');
 }
 
 // ===== CONFIGURATION =====
@@ -862,14 +898,14 @@ function renderProductsTable(prods) {
 
   document.getElementById('productsTable').innerHTML = `
     <table>
-      <thead><tr><th>Foto</th><th>Nombre</th><th>Categoría</th><th>Proveedor</th><th>Costo</th><th>Precio</th><th>Stock</th><th>Estado</th><th>Acciones</th></tr></thead>
+      <thead><tr><th>Foto</th><th>Nombre</th><th>Categoría</th><th>Proveedor</th>${currentRole === 'admin' ? '<th>Costo</th>' : ''}<th>Precio</th><th>Stock</th><th>Estado</th><th>Acciones</th></tr></thead>
       <tbody>${prods.map(p => `
         <tr>
           <td>${p.photo_url ? `<img class="prod-thumb" src="${p.photo_url}" alt="${p.name}">` : '<div class="prod-thumb" style="display:flex;align-items:center;justify-content:center;font-size:1.2rem">🧴</div>'}</td>
           <td><strong>${p.name}</strong></td>
           <td>${p.category || '—'}</td>
           <td>${p.supplier || '—'}</td>
-          <td>${formatPrice(p.cost)}</td>
+          ${currentRole === 'admin' ? `<td>${formatPrice(p.cost)}</td>` : ''}
           <td>${formatPrice(p.price)}</td>
           <td>${p.stock <= 5 && p.stock > 0 ? `<span class="badge badge-low">⚠️ ${p.stock}</span>` : p.stock === 0 ? '<span class="badge badge-inactive">Sin stock</span>' : p.stock}</td>
           <td><span class="badge ${p.active ? 'badge-active' : 'badge-inactive'}">${p.active ? 'Activo' : 'Inactivo'}</span></td>
@@ -884,6 +920,7 @@ function renderProductsTable(prods) {
 
 function openProductModal(id) {
   const modal = document.getElementById('productModal');
+  document.getElementById('groupProdCost').style.display = currentRole === 'admin' ? 'block' : 'none';
   if (id) {
     const p = allProducts.find(x => x.id === id);
     if (!p) return;
@@ -893,7 +930,7 @@ function openProductModal(id) {
     document.getElementById('prodDesc').value = p.description || '';
     document.getElementById('prodCategory').value = p.category || '';
     document.getElementById('prodSupplier').value = p.supplier || '';
-    document.getElementById('prodCost').value = p.cost;
+    if (currentRole === 'admin') document.getElementById('prodCost').value = p.cost || '';
     document.getElementById('prodPrice').value = p.price;
     document.getElementById('prodStock').value = p.stock;
     document.getElementById('prodPhoto').value = p.photo_url || '';
@@ -982,7 +1019,7 @@ async function saveProduct() {
   const stock = parseInt(document.getElementById('prodStock').value);
 
   if (!name) { showToast('El nombre es obligatorio'); return; }
-  if (isNaN(cost) || isNaN(price) || isNaN(stock)) { showToast('Completá costo, precio y stock'); return; }
+  if (isNaN(price) || isNaN(stock) || (currentRole === 'admin' && isNaN(cost))) { showToast('Revisá los campos obligatorios numéricos'); return; }
 
   const btn = document.getElementById('btnSaveProd');
   btn.textContent = 'Guardando...';
@@ -1015,13 +1052,16 @@ async function saveProduct() {
     description: document.getElementById('prodDesc').value.trim() || null,
     category: document.getElementById('prodCategory').value.trim() || null,
     supplier: document.getElementById('prodSupplier').value.trim() || null,
-    cost,
     price,
     stock,
     photo_url: finalPhotoUrl,
     active: document.getElementById('prodActive').checked,
     created_by: currentUser.id
   };
+
+  if (currentRole === 'admin') {
+    payload.cost = cost;
+  }
 
   let error;
   if (id) {
@@ -1132,6 +1172,59 @@ async function viewOrder(id) {
 
 function closeOrderModal() {
   document.getElementById('orderModal').classList.remove('open');
+}
+
+// ===== USUARIOS =====
+async function loadUsers() {
+  const { data } = await sb.from('profiles').select('*').order('created_at', { ascending: false });
+  allProfiles = data || [];
+  renderUsersTable(allProfiles);
+}
+
+function renderUsersTable(users) {
+  if (users.length === 0) {
+    document.getElementById('usersTable').innerHTML = '<div class="empty-state">No hay usuarios.</div>';
+    return;
+  }
+  
+  document.getElementById('usersTable').innerHTML = `
+    <table>
+      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Activo</th><th>Acciones</th></tr></thead>
+      <tbody>${users.map(u => `
+        <tr>
+          <td>${u.email}</td>
+          <td>${u.full_name || '—'}</td>
+          <td><span class="badge ${u.role === 'admin' ? 'badge-active' : 'badge-low'}">${u.role === 'admin' ? 'Admin' : 'Vendedor'}</span></td>
+          <td><span class="badge ${u.active !== false ? 'badge-active' : 'badge-inactive'}">${u.active !== false ? 'Sí' : 'No'}</span></td>
+          <td style="display:flex;gap:0.4rem">
+            <button class="btn-sm btn-edit" onclick="toggleUserRole('${u.id}', '${u.role}')" ${u.id === currentUser.id ? 'disabled' : ''}>${u.role === 'admin' ? 'Hacer vendedor' : 'Hacer admin'}</button>
+            <button class="btn-sm btn-del" onclick="toggleUserActive('${u.id}', ${u.active !== false})" ${u.id === currentUser.id ? 'disabled' : ''}>${u.active !== false ? 'Desactivar' : 'Activar'}</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function openInviteModal() {
+  document.getElementById('inviteModal').classList.add('open');
+}
+function closeInviteModal() {
+  document.getElementById('inviteModal').classList.remove('open');
+}
+
+async function toggleUserRole(id, currentRoleStr) {
+  const newRole = currentRoleStr === 'admin' ? 'vendedor' : 'admin';
+  const { error } = await sb.from('profiles').update({ role: newRole }).eq('id', id);
+  if (error) { showToast('Error al actualizar rol'); return; }
+  showToast(`✓ Rol actualizado a ${newRole}`);
+  loadUsers();
+}
+
+async function toggleUserActive(id, isActive) {
+  const { error } = await sb.from('profiles').update({ active: !isActive }).eq('id', id);
+  if (error) { showToast('Error al actualizar estado'); return; }
+  showToast(`✓ Usuario ${!isActive ? 'activado' : 'desactivado'}`);
+  loadUsers();
 }
 
 // ===== UTILS =====
