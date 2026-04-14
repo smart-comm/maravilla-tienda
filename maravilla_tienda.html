@@ -903,6 +903,13 @@
   </div>
 </div>
 
+<!-- MODAL DETALLE PRODUCTO -->
+<div class="modal-overlay" id="productDetailModal">
+  <div class="modal" id="productDetailContent" style="max-width:520px; padding:1.5rem;">
+    <!-- contenido dinámico -->
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -988,11 +995,15 @@ function renderCard(p) {
   const stockLow = p.stock <= 5 ? `<span class="product-stock-low">¡Últimas ${p.stock}!</span>` : '';
   return `
     <div class="product-card" style="animation-delay:${Math.random()*0.2}s">
-      ${img}${placeholder}
-      <div class="product-info">
-        ${p.category ? `<div class="product-category">${p.category}</div>` : ''}
-        <h3 class="product-name">${p.name}</h3>
-        <p class="product-desc">${p.description || ''}</p>
+      <div onclick="openProductDetail('${p.id}')" style="cursor:pointer">
+        ${img}${placeholder}
+        <div class="product-info" style="padding-bottom:0.5rem">
+          ${p.category ? `<div class="product-category">${p.category}</div>` : ''}
+          <h3 class="product-name">${p.name}</h3>
+          <p class="product-desc">${p.description || ''}</p>
+        </div>
+      </div>
+      <div class="product-info" style="padding-top:0">
         <div class="product-footer">
           <div>
             <div class="product-price">${formatPrice(p.price)}</div>
@@ -1004,6 +1015,96 @@ function renderCard(p) {
         </div>
       </div>
     </div>`;
+}
+
+// ===== DETALLE PRODUCTO =====
+function openProductDetail(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  
+  const content = document.getElementById('productDetailContent');
+  
+  const img = p.photo_url
+    ? `<img src="${p.photo_url}" style="width:100%; height:400px; object-fit:cover; border-radius:12px; margin-bottom:1.5rem;" alt="${p.name}">`
+    : `<div style="width:100%; height:400px; display:flex; align-items:center; justify-content:center; font-size:4rem; background:var(--border); border-radius:12px; margin-bottom:1.5rem;">🧴</div>`;
+    
+  const stockLow = p.stock <= 10 && p.stock > 0 ? `<div style="font-size:0.85rem; color:var(--terracotta); font-weight:600; margin-bottom:1rem;">¡Últimas ${p.stock} disponibles!</div>` : '';
+  const stockZero = p.stock === 0 ? `<div style="font-size:0.85rem; color:var(--text-muted); font-weight:600; margin-bottom:1rem;">Sin stock</div>` : '';
+
+  let qtySelector = '';
+  if (p.stock > 0) {
+    qtySelector = `
+      <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1.5rem;">
+        <span style="font-size:0.9rem; color:var(--text-muted); font-weight:500;">Cantidad:</span>
+        <div class="cart-item-qty" style="margin:0;">
+          <button class="qty-btn" onclick="changeDetailQty(-1, ${p.stock})">−</button>
+          <span class="qty-num" id="detailQty">1</span>
+          <button class="qty-btn" onclick="changeDetailQty(1, ${p.stock})">+</button>
+        </div>
+      </div>
+    `;
+  }
+
+  content.innerHTML = `
+    ${img}
+    <div>
+      ${p.category ? `<div class="product-category" style="font-size:0.8rem; margin-bottom:0.4rem">${p.category}</div>` : ''}
+      <h2 style="font-family:'Playfair Display', serif; font-size:1.8rem; color:var(--earth); margin-bottom:0.3rem; line-height:1.2;">${p.name}</h2>
+      ${p.supplier ? `<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem; font-style:italic;">Por: ${p.supplier}</div>` : ''}
+      <p style="font-size:0.95rem; color:var(--text-main); line-height:1.6; margin-bottom:1.5rem;">${p.description || 'Sin descripción'}</p>
+      
+      <div style="font-size:1.8rem; font-weight:700; color:var(--earth); margin-bottom:0.2rem;">${formatPrice(p.price)}</div>
+      ${stockLow}
+      ${stockZero}
+      
+      ${qtySelector}
+      
+      <div style="display:flex; gap:0.75rem;">
+        <button class="btn-cancel" onclick="closeProductDetail()">Cerrar</button>
+        <button class="btn-confirm" onclick="addToCartFromDetail('${p.id}')" ${p.stock === 0 ? 'disabled' : ''}>
+          Agregar al carrito
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.getElementById('productDetailModal').classList.add('open');
+}
+
+function closeProductDetail() {
+  document.getElementById('productDetailModal').classList.remove('open');
+}
+
+function changeDetailQty(delta, maxStock) {
+  const qtyEl = document.getElementById('detailQty');
+  let qty = parseInt(qtyEl.textContent);
+  qty += delta;
+  if (qty < 1) qty = 1;
+  if (qty > maxStock) qty = maxStock;
+  qtyEl.textContent = qty;
+}
+
+function addToCartFromDetail(productId) {
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+  
+  const qtyToAdd = parseInt(document.getElementById('detailQty').textContent);
+  const existing = cart.find(i => i.id === productId);
+  
+  if (existing) {
+    if (existing.qty + qtyToAdd > product.stock) {
+      showToast('No hay suficiente stock disponible');
+      return;
+    }
+    existing.qty += qtyToAdd;
+  } else {
+    cart.push({ id: product.id, name: product.name, price: product.price, photo_url: product.photo_url, qty: qtyToAdd });
+  }
+  
+  saveCart();
+  updateCartUI();
+  showToast(\`✓ \${qtyToAdd}x \${product.name} agregado\`);
+  closeProductDetail();
 }
 
 // ===== CARRITO =====
@@ -1239,7 +1340,7 @@ function showToast(msg) {
 }
 
 // Cerrar modal con Escape
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeCheckout(); if (document.getElementById('cartOverlay').classList.contains('open')) toggleCart(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeCheckout(); closeProductDetail(); if (document.getElementById('cartOverlay').classList.contains('open')) toggleCart(); } });
 
 init();
 </script>
