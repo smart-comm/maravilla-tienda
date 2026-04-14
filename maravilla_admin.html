@@ -1077,6 +1077,20 @@ document.addEventListener('keydown', e => {
 document.getElementById('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 
 checkAuth();
+
+/*
+  NOTA PARA SUPABASE:
+  Se necesita crear esta función en SQL para descontar el stock al vender:
+
+  CREATE OR REPLACE FUNCTION decrement_stock(product_id UUID, qty INTEGER)
+  RETURNS void AS $$
+  BEGIN
+    UPDATE products 
+    SET stock = GREATEST(stock - qty, 0)
+    WHERE id = product_id;
+  END;
+  $$ LANGUAGE plpgsql SECURITY DEFINER;
+*/
 </script>
 </body>
 </html>

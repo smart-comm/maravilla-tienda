@@ -1183,6 +1183,11 @@ async function submitOrder() {
     const { error: itemsError } = await sb.from('order_items').insert(items);
     if (itemsError) throw itemsError;
 
+    // Descontar stock
+    for (const item of cart) {
+      await sb.rpc('decrement_stock', { product_id: item.id, qty: item.qty });
+    }
+
     // Limpiar carrito
     cart = [];
     saveCart();
