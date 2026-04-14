@@ -590,8 +590,20 @@
       </div>
     </div>
     <div class="form-group">
-      <label class="form-label">URL de imagen</label>
-      <input class="form-input" id="prodPhoto" type="url" placeholder="https://..." oninput="previewImage()">
+      <label class="form-label">Imagen del producto</label>
+      <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;">
+        <button type="button" id="tabUpload" class="btn-sm" style="flex:1;background:var(--earth);color:white;padding:0.6rem;font-size:0.85rem;border:none;" onclick="switchImageTab('upload')">Subir imagen</button>
+        <button type="button" id="tabUrl" class="btn-sm" style="flex:1;background:var(--cream);color:var(--text-main);padding:0.6rem;font-size:0.85rem;border:1px solid var(--border);" onclick="switchImageTab('url')">Usar URL</button>
+      </div>
+
+      <div id="imageUploadSection">
+        <input class="form-input" id="prodPhotoFile" type="file" accept=".jpg,.jpeg,.png,.webp" onchange="previewLocalImage(event)" style="padding: 0.5rem; background: white;">
+      </div>
+
+      <div id="imageUrlSection" style="display:none;">
+        <input class="form-input" id="prodPhoto" type="url" placeholder="https://..." oninput="previewImage()">
+      </div>
+
       <img id="imgPreview" class="img-preview" alt="Preview">
     </div>
 
@@ -630,6 +642,8 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let currentUser = null;
 let allProducts = [];
 let allOrders = [];
+let currentImageMode = 'upload';
+let localImageFile = null;
 
 // ===== AUTH =====
 async function checkAuth() {
@@ -791,13 +805,18 @@ function openProductModal(id) {
     document.getElementById('prodPrice').value = p.price;
     document.getElementById('prodStock').value = p.stock;
     document.getElementById('prodPhoto').value = p.photo_url || '';
+    document.getElementById('prodPhotoFile').value = '';
+    localImageFile = null;
     document.getElementById('prodActive').checked = p.active;
-    previewImage();
+    switchImageTab(p.photo_url ? 'url' : 'upload');
   } else {
     document.getElementById('productModalTitle').textContent = 'Nuevo producto';
     document.getElementById('prodId').value = '';
     ['prodName','prodDesc','prodCategory','prodSupplier','prodCost','prodPrice','prodStock','prodPhoto'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('prodPhotoFile').value = '';
+    localImageFile = null;
     document.getElementById('prodActive').checked = true;
+    switchImageTab('upload');
     document.getElementById('imgPreview').style.display = 'none';
   }
   modal.classList.add('open');
@@ -814,6 +833,55 @@ function previewImage() {
   else { img.style.display = 'none'; }
 }
 
+function switchImageTab(mode) {
+  currentImageMode = mode;
+  const isUpload = mode === 'upload';
+  
+  document.getElementById('imageUploadSection').style.display = isUpload ? 'block' : 'none';
+  document.getElementById('imageUrlSection').style.display = isUpload ? 'none' : 'block';
+  
+  const tabUpload = document.getElementById('tabUpload');
+  const tabUrl = document.getElementById('tabUrl');
+  
+  if (isUpload) {
+    tabUpload.style.background = 'var(--earth)';
+    tabUpload.style.color = 'white';
+    tabUpload.style.border = 'none';
+    tabUrl.style.background = 'var(--cream)';
+    tabUrl.style.color = 'var(--text-main)';
+    tabUrl.style.border = '1px solid var(--border)';
+  } else {
+    tabUrl.style.background = 'var(--earth)';
+    tabUrl.style.color = 'white';
+    tabUrl.style.border = 'none';
+    tabUpload.style.background = 'var(--cream)';
+    tabUpload.style.color = 'var(--text-main)';
+    tabUpload.style.border = '1px solid var(--border)';
+  }
+  
+  if (isUpload && localImageFile) {
+    document.getElementById('imgPreview').src = URL.createObjectURL(localImageFile);
+    document.getElementById('imgPreview').style.display = 'block';
+  } else if (!isUpload && document.getElementById('prodPhoto').value) {
+    previewImage();
+  } else {
+    document.getElementById('imgPreview').style.display = 'none';
+  }
+}
+
+function previewLocalImage(event) {
+  const file = event.target.files[0];
+  if (file) {
+    localImageFile = file;
+    const img = document.getElementById('imgPreview');
+    img.src = URL.createObjectURL(file);
+    img.style.display = 'block';
+  } else {
+    localImageFile = null;
+    document.getElementById('imgPreview').style.display = 'none';
+  }
+}
+
 async function saveProduct() {
   const id = document.getElementById('prodId').value;
   const name = document.getElementById('prodName').value.trim();
@@ -828,6 +896,28 @@ async function saveProduct() {
   btn.textContent = 'Guardando...';
   btn.disabled = true;
 
+  let finalPhotoUrl = null;
+  if (currentImageMode === 'url') {
+    finalPhotoUrl = document.getElementById('prodPhoto').value.trim() || null;
+  } else if (currentImageMode === 'upload' && localImageFile) {
+    btn.textContent = 'Subiendo imagen...';
+    const fileName = Date.now() + '_' + localImageFile.name;
+    const { data: uploadData, error: uploadError } = await sb.storage
+      .from('product-images')
+      .upload(fileName, localImageFile);
+      
+    if (uploadError) {
+      showToast('Error al subir la imagen');
+      btn.textContent = 'Guardar producto';
+      btn.disabled = false;
+      return;
+    }
+    finalPhotoUrl = SUPABASE_URL + '/storage/v1/object/public/product-images/' + fileName;
+  } else if (id) {
+    const p = allProducts.find(x => x.id === id);
+    if (p) finalPhotoUrl = p.photo_url;
+  }
+
   const payload = {
     name,
     description: document.getElementById('prodDesc').value.trim() || null,
@@ -836,7 +926,7 @@ async function saveProduct() {
     cost,
     price,
     stock,
-    photo_url: document.getElementById('prodPhoto').value.trim() || null,
+    photo_url: finalPhotoUrl,
     active: document.getElementById('prodActive').checked,
     created_by: currentUser.id
   };
