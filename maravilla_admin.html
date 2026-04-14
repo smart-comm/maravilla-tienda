@@ -467,6 +467,9 @@
       <a class="nav-item" onclick="showPage('orders', this)">
         <span class="nav-item-icon">📦</span> Pedidos
       </a>
+      <a class="nav-item" onclick="showPage('config', this)">
+        <span class="nav-item-icon">⚙️</span> Configuración
+      </a>
     </nav>
     <div class="sidebar-user">
       <strong id="userEmail">—</strong>
@@ -533,6 +536,52 @@
           </select>
         </div>
         <div id="ordersTable"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- CONFIGURACION -->
+    <div id="page-config" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Configuración</div>
+          <div class="page-sub">Ajustes generales del negocio</div>
+        </div>
+      </div>
+      <div class="card" style="max-width: 600px;">
+        <div class="card-header">
+          <span class="card-title">Datos principales</span>
+        </div>
+        <div style="padding: 1.5rem;">
+          <div class="form-group">
+            <label class="form-label">Nombre del negocio</label>
+            <input class="form-input" id="confName" type="text" placeholder="Ej: Maravilla Tienda">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Teléfono / WhatsApp</label>
+              <input class="form-input" id="confPhone" type="text" placeholder="Ej: 5493854000000">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Email de contacto</label>
+              <input class="form-input" id="confEmail" type="email" placeholder="hola@maravilla.com">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Dirección</label>
+              <input class="form-input" id="confAddress" type="text" placeholder="Ej: Calle Principal 123">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Instagram (@usuario)</label>
+              <input class="form-input" id="confIg" type="text" placeholder="@maravilla">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Descripción corta del negocio</label>
+            <textarea class="form-input" id="confDesc" rows="3" placeholder="Breve texto sobre nosotros..."></textarea>
+          </div>
+          <button class="btn-action" id="btnSaveConfig" onclick="saveConfig()" style="width: 100%; justify-content: center; margin-top: 1rem;">Guardar configuración</button>
+        </div>
       </div>
     </div>
 
@@ -700,6 +749,7 @@ function showAdmin() {
   loadDashboard();
   loadProducts();
   loadOrders();
+  loadConfig();
 }
 
 // ===== NAVIGATION =====
@@ -708,6 +758,47 @@ function showPage(name, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   el.classList.add('active');
+}
+
+// ===== CONFIGURATION =====
+async function loadConfig() {
+  const { data } = await sb.from('settings').select('*');
+  if (data) {
+    const map = {};
+    data.forEach(d => map[d.key] = d.value);
+    document.getElementById('confName').value = map.name || '';
+    document.getElementById('confPhone').value = map.phone || '';
+    document.getElementById('confEmail').value = map.email || '';
+    document.getElementById('confAddress').value = map.address || '';
+    document.getElementById('confIg').value = map.instagram || '';
+    document.getElementById('confDesc').value = map.description || '';
+  }
+}
+
+async function saveConfig() {
+  const btn = document.getElementById('btnSaveConfig');
+  btn.textContent = 'Guardando...';
+  btn.disabled = true;
+
+  const updates = [
+    { key: 'name', value: document.getElementById('confName').value.trim() },
+    { key: 'phone', value: document.getElementById('confPhone').value.trim() },
+    { key: 'email', value: document.getElementById('confEmail').value.trim() },
+    { key: 'address', value: document.getElementById('confAddress').value.trim() },
+    { key: 'instagram', value: document.getElementById('confIg').value.trim() },
+    { key: 'description', value: document.getElementById('confDesc').value.trim() }
+  ];
+
+  const { error } = await sb.from('settings').upsert(updates);
+  
+  btn.textContent = 'Guardar configuración';
+  btn.disabled = false;
+
+  if (error) {
+    showToast('Error al guardar configuración');
+  } else {
+    showToast('✓ Configuración guardada');
+  }
 }
 
 // ===== DASHBOARD =====
@@ -1081,7 +1172,7 @@ checkAuth();
 
 /*
   NOTA PARA SUPABASE:
-  Se necesita crear esta función en SQL para descontar el stock al vender:
+  1. Se necesita crear esta función en SQL para descontar el stock al vender:
 
   CREATE OR REPLACE FUNCTION decrement_stock(product_id UUID, qty INTEGER)
   RETURNS void AS $$
@@ -1091,6 +1182,17 @@ checkAuth();
     WHERE id = product_id;
   END;
   $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+  2. Se necesita crear esta tabla para almacenar la configuración:
+
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY "settings_read" ON settings FOR SELECT USING (true);
+  CREATE POLICY "settings_write" ON settings FOR ALL TO authenticated USING (true);
 */
 </script>
 </body>
